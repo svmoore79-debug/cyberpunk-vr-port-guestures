@@ -104,4 +104,12 @@ patch("mods/cet/CyberpunkVRPort_Weapon/init.lua", [
     ("        if VRP_lastClass == 1 then return end\n",
      "        if VRP_lastClass == 1 or VRP_lastClass == 5 then return end   -- [VRGestures fork] fists/melee (class 5) are never handed to the left hand\n"),
 ])
+# 4. Upstream 0.1.9's CMakeLists adds tools/rtti_dump, a patch-day tool that was never committed, so a clean
+#    checkout fails to configure. Add it only when the folder is there; the plugin does not need it.
+patch("CMakeLists.txt", [
+    ("add_subdirectory(tools/rtti_dump)",
+     "if(EXISTS \"${CMAKE_CURRENT_SOURCE_DIR}/tools/rtti_dump/CMakeLists.txt\")  # [VRGestures fork] not in the published tree\n"
+     "    add_subdirectory(tools/rtti_dump)\n"
+     "endif()"),
+])
 print("all VRGestures fork patches applied")

@@ -10,6 +10,8 @@ close to upstream as possible. Branch `vrgestures-0.1.9` = upstream 0.1.9 plus:
 2. **Launcher fires on trigger release** (`vrport_cyberware.reds`), only when the TweakXL flat
    `VRGestures.launcherFireOnRelease` is true (shipped by the VRGestures mod). Off otherwise: upstream behaviour.
 3. **Fists/melee (class 5) are not handed to the left hand** by the two-hand carry (`CyberpunkVRPort_Weapon/init.lua`).
+4. **Build fix:** upstream's `CMakeLists.txt` adds `tools/rtti_dump`, which is not in the published tree, so a clean
+   checkout does not configure. It is now added only when the folder exists.
 
 The changes live in `vrgestures/apply_patches.py` as exact text replacements (each must match once), applied
 to the untouched upstream files at build time, so a new upstream release only needs that script re-checked.
