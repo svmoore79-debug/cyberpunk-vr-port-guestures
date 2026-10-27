@@ -1,0 +1,77 @@
+# VRGestures fork: builds CyberpunkVR_Stereo.dll for game 2.5 on a GitHub Windows runner and
+# packages it with the fork's two patched scripts. Download the "CyberpunkVRPort-vrgestures" artifact
+# from the run page and install it in Vortex as its own mod on top of the official 0.1.9 install.
+name: Build VR port DLL
+
+on:
+  push:
+    branches: ['vrgestures-*']
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: windows-2022
+    timeout-minutes: 90
+    env:
+      # The SDK the 2.5 build needs: RED4ext.SDK master "Update types for patch 2.5" (#232, 2026-10-24).
+      # The submodule (externals/RED4ext.SDK) is still the 2.31-era commit; upstream builds 2.5 against
+      # SDK master in a separate tree. The plugin checks these layouts at every start ([sdk-layout] in
+      # cyberpunkvrport.log), so a mismatch shows up there.
+      SDK_REPO: https://github.com/wopss/RED4ext.SDK.git
+      SDK_COMMIT: 5246e659d783e5834cc08a90e56c8932c9ed3449
+    steps:
+      - name: Check out the fork
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Apply the VRGestures fork patches
+        run: python vrgestures/apply_patches.py
+
+      - name: Get RED4ext.SDK for game 2.5
+        shell: pwsh
+        run: |
+          git clone --quiet $env:SDK_REPO sdk25
+          git -C sdk25 checkout --quiet $env:SDK_COMMIT
+          git -C sdk25 log -1 --oneline
+
+      - name: Configure
+        shell: pwsh
+        run: >
+          cmake -S . -B build -G "Visual Studio 17 2022" -A x64
+          -DCVR_RED4EXT_SDK_DIR="${{ github.workspace }}/sdk25"
+
+      - name: Build the plugin
+        shell: pwsh
+        run: cmake --build build --config Release --target cyberpunkvrport_stereo --parallel
+
+      - name: Package for Vortex
+        shell: pwsh
+        run: |
+          $dll = Get-ChildItem build -Recurse -Filter CyberpunkVR_Stereo.dll | Select-Object -First 1
+          $pdb = Get-ChildItem build -Recurse -Filter CyberpunkVR_Stereo.pdb | Select-Object -First 1
+          if (-not $dll) { throw "CyberpunkVR_Stereo.dll was not built" }
+          $out = "pkg"
+          $plug = "$out/red4ext/plugins/CyberpunkVR_Stereo"
+          $reds = "$out/r6/scripts/CyberpunkVRPort_Cyberware"
+          $cet  = "$out/bin/x64/plugins/cyber_engine_tweaks/mods/CyberpunkVRPort_Weapon"
+          New-Item -ItemType Directory -Force $plug, $reds, $cet | Out-Null
+          Copy-Item $dll.FullName $plug
+          Copy-Item mods/redscript/CyberpunkVRPort_Cyberware/vrport_cyberware.reds $reds
+          Copy-Item mods/cet/CyberpunkVRPort_Weapon/init.lua $cet
+          New-Item -ItemType Directory -Force symbols | Out-Null
+          if ($pdb) { Copy-Item $pdb.FullName symbols }
+          "Built from $env:GITHUB_SHA on $env:GITHUB_REF_NAME, RED4ext.SDK $env:SDK_COMMIT" | Out-File "$out/VRGESTURES_FORK_BUILD.txt"
+          Get-ChildItem $out -Recurse | Select-Object FullName, Length
+
+      - name: Upload the Vortex package
+        uses: actions/upload-artifact@v4
+        with:
+          name: CyberpunkVRPort-vrgestures
+          path: pkg/
+
+      - name: Upload debug symbols
+        uses: actions/upload-artifact@v4
+        with:
+          name: CyberpunkVR_Stereo-pdb
+          path: symbols/
