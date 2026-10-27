@@ -21,7 +21,7 @@ jobs:
       SDK_COMMIT: 5246e659d783e5834cc08a90e56c8932c9ed3449
     steps:
       - name: Check out the fork
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
         with:
           submodules: recursive
 
@@ -35,15 +35,32 @@ jobs:
           git -C sdk25 checkout --quiet $env:SDK_COMMIT
           git -C sdk25 log -1 --oneline
 
+      # Job logs need a GitHub sign-in to read, annotations do not: on failure, the tail of the output is
+      # posted as one error annotation so it can be read from the API or the run page while signed out.
       - name: Configure
         shell: pwsh
-        run: >
-          cmake -S . -B build -G "Visual Studio 17 2022" -A x64
-          -DCVR_RED4EXT_SDK_DIR="${{ github.workspace }}/sdk25"
+        run: |
+          cmake -S . -B build -G "Visual Studio 17 2022" -A x64 "-DCVR_RED4EXT_SDK_DIR=${{ github.workspace }}/sdk25" 2>&1 | Tee-Object -FilePath configure.log
+          $code = $LASTEXITCODE
+          if ($code -ne 0) {
+            $tail = (Get-Content configure.log -Tail 60) -join "`n"
+            $msg = $tail.Replace('%', '%25').Replace("`r", '%0D').Replace("`n", '%0A')
+            Write-Output "::error title=Configure failed (cmake exit $code)::$msg"
+            exit $code
+          }
 
       - name: Build the plugin
         shell: pwsh
-        run: cmake --build build --config Release --target cyberpunkvrport_stereo --parallel
+        run: |
+          cmake --build build --config Release --target cyberpunkvrport_stereo --parallel 2>&1 | Tee-Object -FilePath build.log
+          $code = $LASTEXITCODE
+          if ($code -ne 0) {
+            $errs = Select-String -Path build.log -Pattern ' error |: fatal error|error MSB|LINK : fatal' | Select-Object -First 40 | ForEach-Object { $_.Line.Trim() }
+            if (-not $errs) { $errs = Get-Content build.log -Tail 60 }
+            $msg = ($errs -join "`n").Replace('%', '%25').Replace("`r", '%0D').Replace("`n", '%0A')
+            Write-Output "::error title=Build failed (exit $code)::$msg"
+            exit $code
+          }
 
       - name: Package for Vortex
         shell: pwsh
@@ -65,13 +82,13 @@ jobs:
           Get-ChildItem $out -Recurse | Select-Object FullName, Length
 
       - name: Upload the Vortex package
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v5
         with:
           name: CyberpunkVRPort-vrgestures
           path: pkg/
 
       - name: Upload debug symbols
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v5
         with:
           name: CyberpunkVR_Stereo-pdb
           path: symbols/
